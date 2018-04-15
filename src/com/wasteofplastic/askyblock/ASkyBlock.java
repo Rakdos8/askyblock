@@ -70,6 +70,7 @@ import com.wasteofplastic.askyblock.panels.ControlPanel;
 import com.wasteofplastic.askyblock.panels.SchematicsPanel;
 import com.wasteofplastic.askyblock.panels.SettingsPanel;
 import com.wasteofplastic.askyblock.panels.WarpPanel;
+import com.wasteofplastic.askyblock.util.HeadGetter;
 import com.wasteofplastic.askyblock.util.Util;
 import com.wasteofplastic.askyblock.util.VaultHelper;
 
@@ -138,6 +139,10 @@ public class ASkyBlock extends JavaPlugin {
     // Localization Strings
     private HashMap<String,ASLocale> availableLocales = new HashMap<String,ASLocale>();
 
+    // Head getter
+    private HeadGetter headGetter;
+    private EntityLimits entityLimits;
+    
     /**
      * Returns the World object for the island world named in config.yml.
      * If the world does not exist then it is created.
@@ -226,7 +231,9 @@ public class ASkyBlock extends JavaPlugin {
             if (messages != null) {
                 messages.saveMessages();
             }
-            TopTen.topTenSave();
+            if (topTen != null) {
+                topTen.topTenSave();
+            }
             // Close the name database
             if (tinyDB != null) {
                 tinyDB.saveDB();
@@ -236,6 +243,10 @@ public class ASkyBlock extends JavaPlugin {
             // Remove temporary perms
             if (playerEvents != null) {
                 playerEvents.removeAllTempPerms();
+            }
+            // Save entitiy limits
+            if (entityLimits != null) {
+                entityLimits.disable();
             }
         } catch (final Exception e) {
             getLogger().severe("Something went wrong saving files!");
@@ -427,16 +438,20 @@ public class ASkyBlock extends JavaPlugin {
                         if (tinyDB == null) {
                             tinyDB = new TinyDB(ASkyBlock.this);
                         }
+                        // Run head getter
+                        headGetter = new HeadGetter(plugin);
+
                         // Load warps
                         getWarpSignsListener().loadWarpList();
                         // Load the warp panel
                         if (Settings.useWarpPanel) {
+                            plugin.getLogger().info("Loading warp panel...");
                             warpPanel = new WarpPanel(ASkyBlock.this);
                             getServer().getPluginManager().registerEvents(warpPanel, ASkyBlock.this);
-                        }						
+                        }			
+                        topTen = new TopTen(ASkyBlock.this);
                         // Load the TopTen GUI
                         if (!Settings.displayIslandTopTenInChat){
-                            topTen = new TopTen(ASkyBlock.this);
                             getServer().getPluginManager().registerEvents(topTen, ASkyBlock.this);
                         }
                         // Minishop - must wait for economy to load before we can use
@@ -449,8 +464,6 @@ public class ASkyBlock extends JavaPlugin {
                         // Load Biomes
                         biomes = new BiomesPanel(ASkyBlock.this);
                         getServer().getPluginManager().registerEvents(biomes, ASkyBlock.this);
-
-                        TopTen.topTenLoad();
 
                         // Add any online players to the DB
                         for (Player onlinePlayer : ASkyBlock.this.getServer().getOnlinePlayers()) {
@@ -465,7 +478,7 @@ public class ASkyBlock extends JavaPlugin {
                         }
                         // Give temp permissions
                         playerEvents.giveAllTempPerms();
-                        
+                                                
                         getLogger().info("All files loaded. Ready to play...");
                         
                         registerCustomCharts();
@@ -682,7 +695,8 @@ public class ASkyBlock extends JavaPlugin {
         // Island Protection events
         manager.registerEvents(new IslandGuard(this), this);
         // Island Entity Limits
-        manager.registerEvents(new EntityLimits(this), this);
+        entityLimits = new EntityLimits(this);
+        manager.registerEvents(entityLimits, this);
         // Player events
         playerEvents = new PlayerEvents(this);
         manager.registerEvents(playerEvents, this);
@@ -746,8 +760,9 @@ public class ASkyBlock extends JavaPlugin {
      * Resets a player's inventory, armor slots, equipment, enderchest and
      * potion effects
      *
-     * @param player
+     * @param player - player
      */
+    @SuppressWarnings("deprecation")
     public void resetPlayer(Player player) {
         // getLogger().info("DEBUG: clear inventory = " +
         // Settings.clearInventory);
@@ -777,7 +792,7 @@ public class ASkyBlock extends JavaPlugin {
         players.clearStartIslandRating(player.getUniqueId());
         // Save the player
         players.save(player.getUniqueId());
-        TopTen.topTenAddEntry(player.getUniqueId(), 0);
+        topTen.topTenAddEntry(player.getUniqueId(), 0);
         // Update the inventory
         player.updateInventory();
         if (Settings.resetEnderChest) {
@@ -836,6 +851,7 @@ public class ASkyBlock extends JavaPlugin {
     }
 
     /**
+     * @param player - player
      * @return Locale for this player
      */
     public ASLocale myLocale(UUID player) {
@@ -976,5 +992,19 @@ public class ASkyBlock extends JavaPlugin {
                 return getGrid().getIslandCount();
             }
         }));
+    }
+
+    /**
+     * @return the headGetter
+     */
+    public HeadGetter getHeadGetter() {
+        return headGetter;
+    }
+
+    /**
+     * @return the topTen
+     */
+    public TopTen getTopTen() {
+        return topTen;
     }
 }

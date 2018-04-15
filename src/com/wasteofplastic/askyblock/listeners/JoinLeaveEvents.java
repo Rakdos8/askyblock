@@ -1,5 +1,4 @@
 /*******************************************************************************
- * This file is part of ASkyBlock.
  *
  *     ASkyBlock is free software: you can redistribute it and/or modify
  *     it under the terms of the GNU General Public License as published by
@@ -40,7 +39,6 @@ import com.wasteofplastic.askyblock.LevelCalcByChunk;
 import com.wasteofplastic.askyblock.PlayerCache;
 import com.wasteofplastic.askyblock.Scoreboards;
 import com.wasteofplastic.askyblock.Settings;
-import com.wasteofplastic.askyblock.TopTen;
 import com.wasteofplastic.askyblock.util.Util;
 import com.wasteofplastic.askyblock.util.VaultHelper;
 
@@ -75,7 +73,6 @@ public class JoinLeaveEvents implements Listener {
                 plugin.getLogger().info("DEBUG: checking language");
             // Get language
             String language = getLanguage(player);
-            //plugin.getLogger().info("DEBUG: language = " + language);
             // Check if we have this language
             if (plugin.getResource("locale/" + language + ".yml") != null) {
                 if (DEBUG)
@@ -101,6 +98,7 @@ public class JoinLeaveEvents implements Listener {
 
         if (players == null) {
             plugin.getLogger().severe("players is NULL");
+            return;
         }
 
         // If this player is not an island player just skip all this
@@ -254,6 +252,9 @@ public class JoinLeaveEvents implements Listener {
                             // Only set the island range if the player has a perm to override the default
                             if (hasARangePerm) {
                                 // Do some sanity checking
+                                if (range > Settings.islandDistance) {
+                                    range = Settings.islandDistance;
+                                }
                                 if (range % 2 != 0) {
                                     range--;
                                     if (DEBUG)
@@ -279,7 +280,7 @@ public class JoinLeaveEvents implements Listener {
         if (Settings.loginLevel) {
             if (DEBUG)
                 plugin.getLogger().info("DEBUG: Run level calc");
-            new LevelCalcByChunk(plugin, playerUUID, player, false);
+            new LevelCalcByChunk(plugin, plugin.getGrid().getIsland(playerUUID), playerUUID, player, false);
         }
         // Reset resets if the admin changes it to or from unlimited
         if (Settings.resetLimit < players.getResetsLeft(playerUUID)  || (Settings.resetLimit >= 0 && players.getResetsLeft(playerUUID) < 0)) {
@@ -338,7 +339,7 @@ public class JoinLeaveEvents implements Listener {
         if (!player.hasPermission(Settings.PERMPREFIX + "intopten")) {
             if (DEBUG)
                 plugin.getLogger().info("DEBUG: Removing from top ten");
-            TopTen.topTenRemoveEntry(playerUUID);
+            plugin.getTopTen().topTenRemoveEntry(playerUUID);
         }
         // Load any messages for the player
         if (DEBUG)
@@ -370,7 +371,7 @@ public class JoinLeaveEvents implements Listener {
     public void onPlayerQuit(final PlayerQuitEvent event) {
         // Remove from TopTen if the player has the permission
         if (!event.getPlayer().hasPermission(Settings.PERMPREFIX + "intopten")) {
-            TopTen.topTenRemoveEntry(event.getPlayer().getUniqueId());
+            plugin.getTopTen().topTenRemoveEntry(event.getPlayer().getUniqueId());
         }
         // Remove from coop list
         if (!Settings.persistantCoops) {
@@ -392,12 +393,15 @@ public class JoinLeaveEvents implements Listener {
     public String getLanguage(Player p){
         Object ep;
         try {
-            ep = getMethod("getHandle", p.getClass()).invoke(p, (Object[]) null);
-            Field f = ep.getClass().getDeclaredField("locale");
-            f.setAccessible(true);
-            String language = (String) f.get(ep);
-            language.replace('_', '-');
-            return language;
+            Method method = getMethod("getHandle", p.getClass());
+            if (method != null) {
+                ep = method.invoke(p, (Object[]) null);
+                Field f = ep.getClass().getDeclaredField("locale");
+                f.setAccessible(true);
+                String language = (String) f.get(ep);
+                language = language.replace('_', '-');
+                return language;
+            }
         } catch (Exception e) {
             //nothing
         }
