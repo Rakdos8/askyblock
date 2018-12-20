@@ -54,12 +54,12 @@ import com.wasteofplastic.askyblock.util.Util;
  */
 public class ChatListener implements Listener {
 
-    private ASkyBlock plugin;
-    private ConcurrentHashMap<UUID,Boolean> teamChatUsers;
-    private ConcurrentHashMap<UUID,String> playerLevels;
-    private ConcurrentHashMap<UUID,String> playerChallengeLevels;
+    private final ASkyBlock plugin;
+    private final Map<UUID,Boolean> teamChatUsers;
+    private final Map<UUID,String> playerLevels;
+    private final Map<UUID, String> playerChallengeLevels;
     // List of which admins are spying or not on team chat
-    private Set<UUID> spies;
+    private final Set<UUID> spies;
     private static final boolean DEBUG = false;
 
     /**
@@ -89,9 +89,9 @@ public class ChatListener implements Listener {
         LEVELS = new TreeMap<>();
 
         LEVELS.put(THOUSAND, "k");
-        LEVELS.put(THOUSAND.pow(1), "M");
-        LEVELS.put(THOUSAND.pow(2), "G");
-        LEVELS.put(THOUSAND.pow(3), "T");
+        LEVELS.put(THOUSAND.pow(2), "M");
+        LEVELS.put(THOUSAND.pow(3), "G");
+        LEVELS.put(THOUSAND.pow(4), "T");
     }
 
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
@@ -262,7 +262,7 @@ public class ChatListener implements Listener {
      * @return challenge level as string or empty string none
      */
     public String getPlayerChallengeLevel(UUID playerUUID) {
-        if (playerChallengeLevels.contains(playerUUID))
+        if (playerChallengeLevels.containsKey(playerUUID))
             return playerChallengeLevels.get(playerUUID);
         return "";
     }
