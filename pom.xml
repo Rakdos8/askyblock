@@ -125,7 +125,7 @@
 	</dependencies>
 	<repositories>
 		<repository>
-			<id>Modulmonde.com</id>
+			<id>modulmonde.com</id>
 			<url>http://nexus.modulmonde.com/content/groups/modulmonde</url>
 		</repository>
 	</repositories>
