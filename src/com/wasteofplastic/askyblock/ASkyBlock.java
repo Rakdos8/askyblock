@@ -1,5 +1,4 @@
 /*******************************************************************************
- * This file is part of ASkyBlock.
  *
  *     ASkyBlock is free software: you can redistribute it and/or modify
  *     it under the terms of the GNU General Public License as published by
@@ -19,8 +18,8 @@ package com.wasteofplastic.askyblock;
 
 import java.io.File;
 import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.Callable;
 
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -45,6 +44,7 @@ import com.wasteofplastic.askyblock.Updater.UpdateType;
 import com.wasteofplastic.askyblock.commands.AdminCmd;
 import com.wasteofplastic.askyblock.commands.Challenges;
 import com.wasteofplastic.askyblock.commands.IslandCmd;
+import com.wasteofplastic.askyblock.events.IslandPreDeleteEvent;
 import com.wasteofplastic.askyblock.events.IslandDeleteEvent;
 import com.wasteofplastic.askyblock.events.ReadyEvent;
 import com.wasteofplastic.askyblock.generators.ChunkGeneratorWorld;
@@ -128,21 +128,21 @@ public class ASkyBlock extends JavaPlugin {
     private SettingsPanel settingsPanel;
 
     // Acid Item Removal Task
-    AcidTask acidTask;
+    private AcidTask acidTask;
 
     // Player events listener
     private PlayerEvents playerEvents;
-    
+
     // Metrics
     private Metrics metrics;
 
     // Localization Strings
-    private HashMap<String,ASLocale> availableLocales = new HashMap<String,ASLocale>();
+    private Map<String,ASLocale> availableLocales = new HashMap<>();
 
     // Head getter
     private HeadGetter headGetter;
     private EntityLimits entityLimits;
-    
+
     /**
      * Returns the World object for the island world named in config.yml.
      * If the world does not exist then it is created.
@@ -165,30 +165,12 @@ public class ASkyBlock extends JavaPlugin {
                 getNetherWorld();
             }
             // Multiverse configuration
-
             if (!Settings.useOwnGenerator && Bukkit.getServer().getPluginManager().isPluginEnabled("Multiverse-Core")) {
-                Bukkit.getLogger().info("Trying to register generator with Multiverse ");
-                try {
-                    Bukkit.getServer().dispatchCommand(Bukkit.getServer().getConsoleSender(),
-                            "mv import " + Settings.worldName + " normal -g " + plugin.getName());
-                    if (!Bukkit.getServer().dispatchCommand(Bukkit.getServer().getConsoleSender(),
-                            "mv modify set generator " + plugin.getName() + " " + Settings.worldName)) {
-                        Bukkit.getLogger().severe("Multiverse is out of date! - Upgrade to latest version!");
-                    }
-                    if (Settings.createNether) {
-                        if (Settings.newNether) {
-                            Bukkit.getServer().dispatchCommand(Bukkit.getServer().getConsoleSender(),
-                                    "mv import " + Settings.worldName + "_nether nether -g " + plugin.getName());
-                            Bukkit.getServer().dispatchCommand(Bukkit.getServer().getConsoleSender(),
-                                    "mv modify set generator " + plugin.getName() + " " + Settings.worldName + "_nether");
-                        } else {
-                            Bukkit.getServer().dispatchCommand(Bukkit.getServer().getConsoleSender(), "mv import " + Settings.worldName + "_nether nether");
-                        }
-                    }
-                } catch (Exception e) {
-                    Bukkit.getLogger().severe("Not successfull! Disabling " + plugin.getName() + "!");
-                    e.printStackTrace();
-                    Bukkit.getServer().getPluginManager().disablePlugin(plugin);
+                // Run sync
+                if (!Bukkit.isPrimaryThread()) {
+                    Bukkit.getScheduler().runTask(plugin, ASkyBlock::registerMultiverse);
+                } else {
+                    registerMultiverse();
                 }
             }
 
@@ -201,6 +183,35 @@ public class ASkyBlock extends JavaPlugin {
         }
 
         return islandWorld;
+    }
+
+    private static void registerMultiverse() {
+        Bukkit.getLogger().info("Trying to register generator with Multiverse ");
+        try {
+            Bukkit.getServer().dispatchCommand(Bukkit.getServer().getConsoleSender(),
+                    "mv import " + Settings.worldName + " normal -g " + plugin.getName());
+            if (!Bukkit.getServer().dispatchCommand(Bukkit.getServer().getConsoleSender(),
+                    "mv modify set generator " + plugin.getName() + " " + Settings.worldName)) {
+                Bukkit.getLogger().severe("Multiverse is out of date! - Upgrade to latest version!");
+            }
+
+            if (Settings.createNether) {
+                if (Settings.newNether) {
+
+                    Bukkit.getServer().dispatchCommand(Bukkit.getServer().getConsoleSender(),
+
+                            "mv import " + Settings.worldName + "_nether nether -g " + plugin.getName());
+                    Bukkit.getServer().dispatchCommand(Bukkit.getServer().getConsoleSender(),
+                            "mv modify set generator " + plugin.getName() + " " + Settings.worldName + "_nether");
+
+                } else {
+                    Bukkit.getServer().dispatchCommand(Bukkit.getServer().getConsoleSender(), "mv import " + Settings.worldName + "_nether nether");
+                }
+            }
+        } catch (Exception e) {
+            Bukkit.getLogger().severe("Not successfull! Disabling " + plugin.getName() + "!");
+            Bukkit.getServer().getPluginManager().disablePlugin(plugin);
+        }
     }
 
     /**
@@ -226,10 +237,10 @@ public class ASkyBlock extends JavaPlugin {
             }
             // Save the warps and do not reload the panel
             if (warpSignsListener != null) {
-                warpSignsListener.saveWarpList();
+                warpSignsListener.saveWarpList(false);
             }
             if (messages != null) {
-                messages.saveMessages();
+                messages.saveMessages(false);
             }
             if (topTen != null) {
                 topTen.topTenSave();
@@ -252,7 +263,7 @@ public class ASkyBlock extends JavaPlugin {
             getLogger().severe("Something went wrong saving files!");
             e.printStackTrace();
         }
-        
+
         metrics = null;
     }
 
@@ -379,7 +390,7 @@ public class ASkyBlock extends JavaPlugin {
         }
         // Metrics
         metrics = new Metrics(this);
-        
+
         // Kick off a few tasks on the next tick
         // By calling getIslandWorld(), if there is no island
         // world, it will be created
@@ -411,82 +422,79 @@ public class ASkyBlock extends JavaPlugin {
                     HandlerList.unregisterAll(ASkyBlock.this);
                     return;
                 }
-                
+
                 // Run game rule to keep things quiet
                 if (Settings.silenceCommandFeedback){
                     try {
                         getLogger().info("Silencing command feedback for Ops...");
                         getServer().dispatchCommand(getServer().getConsoleSender(), "minecraft:gamerule sendCommandFeedback false");
                         getLogger().info("If you do not want this, do /gamerule sendCommandFeedback true");
-                    } catch (Exception e) {} // do nothing
+                    } catch (Exception ignored) {} // do nothing
                 }
-                
+
                 // Run these one tick later to ensure worlds are loaded.
-                getServer().getScheduler().runTask(ASkyBlock.this, new Runnable() {
-                    @Override
-                    public void run() {
-                        // load the list - order matters - grid first, then top
-                        // ten to optimize upgrades
-                        // Load grid
-                        if (grid == null) {
-                            grid = new GridManager(ASkyBlock.this);
-                        }
-                        // Register events
-                        registerEvents();
-
-                        // Load TinyDb
-                        if (tinyDB == null) {
-                            tinyDB = new TinyDB(ASkyBlock.this);
-                        }
-                        // Run head getter
-                        headGetter = new HeadGetter(plugin);
-
-                        // Load warps
-                        getWarpSignsListener().loadWarpList();
-                        // Load the warp panel
-                        if (Settings.useWarpPanel) {
-                            plugin.getLogger().info("Loading warp panel...");
-                            warpPanel = new WarpPanel(ASkyBlock.this);
-                            getServer().getPluginManager().registerEvents(warpPanel, ASkyBlock.this);
-                        }			
-                        topTen = new TopTen(ASkyBlock.this);
-                        // Load the TopTen GUI
-                        if (!Settings.displayIslandTopTenInChat){
-                            getServer().getPluginManager().registerEvents(topTen, ASkyBlock.this);
-                        }
-                        // Minishop - must wait for economy to load before we can use
-                        // econ
-                        getServer().getPluginManager().registerEvents(new ControlPanel(ASkyBlock.this), ASkyBlock.this);
-                        // Settings
-                        settingsPanel = new SettingsPanel(ASkyBlock.this);
-                        getServer().getPluginManager().registerEvents(settingsPanel, ASkyBlock.this);
-                        // Biomes
-                        // Load Biomes
-                        biomes = new BiomesPanel(ASkyBlock.this);
-                        getServer().getPluginManager().registerEvents(biomes, ASkyBlock.this);
-
-                        // Add any online players to the DB
-                        for (Player onlinePlayer : ASkyBlock.this.getServer().getOnlinePlayers()) {
-                            tinyDB.savePlayerName(onlinePlayer.getName(), onlinePlayer.getUniqueId());
-                        }
-                        if (Settings.backupDuration > 0) {
-                            new AsyncBackup(ASkyBlock.this);
-                        }
-                        // Load the coops
-                        if (Settings.persistantCoops) {
-                            CoopPlay.getInstance().loadCoops();
-                        }
-                        // Give temp permissions
-                        playerEvents.giveAllTempPerms();
-                                                
-                        getLogger().info("All files loaded. Ready to play...");
-                        
-                        registerCustomCharts();
-                        getLogger().info("Metrics loaded.");
-                        
-                        // Fire event
-                        getServer().getPluginManager().callEvent(new ReadyEvent());
+                getServer().getScheduler().runTask(ASkyBlock.this, () -> {
+                    // load the list - order matters - grid first, then top
+                    // ten to optimize upgrades
+                    // Load grid
+                    if (grid == null) {
+                        grid = new GridManager(ASkyBlock.this);
                     }
+                    // Register events
+                    registerEvents();
+
+                    // Load TinyDb
+                    if (tinyDB == null) {
+                        tinyDB = new TinyDB(ASkyBlock.this);
+                    }
+                    // Run head getter
+                    headGetter = new HeadGetter(plugin);
+
+                    // Load warps
+                    getWarpSignsListener().loadWarpList();
+                    // Load the warp panel
+                    if (Settings.useWarpPanel) {
+                        plugin.getLogger().info("Loading warp panel...");
+                        warpPanel = new WarpPanel(ASkyBlock.this);
+                        getServer().getPluginManager().registerEvents(warpPanel, ASkyBlock.this);
+                    }
+                    topTen = new TopTen(ASkyBlock.this);
+                    // Load the TopTen GUI
+                    if (!Settings.displayIslandTopTenInChat){
+                        getServer().getPluginManager().registerEvents(topTen, ASkyBlock.this);
+                    }
+                    // Minishop - must wait for economy to load before we can use
+                    // econ
+                    getServer().getPluginManager().registerEvents(new ControlPanel(ASkyBlock.this), ASkyBlock.this);
+                    // Settings
+                    settingsPanel = new SettingsPanel(ASkyBlock.this);
+                    getServer().getPluginManager().registerEvents(settingsPanel, ASkyBlock.this);
+                    // Biomes
+                    // Load Biomes
+                    biomes = new BiomesPanel(ASkyBlock.this);
+                    getServer().getPluginManager().registerEvents(biomes, ASkyBlock.this);
+
+                    // Add any online players to the DB
+                    for (Player onlinePlayer : ASkyBlock.this.getServer().getOnlinePlayers()) {
+                        tinyDB.savePlayerName(onlinePlayer.getName(), onlinePlayer.getUniqueId());
+                    }
+                    if (Settings.backupDuration > 0) {
+                        new AsyncBackup(ASkyBlock.this);
+                    }
+                    // Load the coops
+                    if (Settings.persistantCoops) {
+                        CoopPlay.getInstance().loadCoops();
+                    }
+                    // Give temp permissions
+                    playerEvents.giveAllTempPerms();
+
+                    getLogger().info("All files loaded. Ready to play...");
+
+                    registerCustomCharts();
+                    getLogger().info("Metrics loaded.");
+
+                    // Fire event
+                    getServer().getPluginManager().callEvent(new ReadyEvent());
                 });
                 // Check for updates asynchronously
                 if (Settings.updateCheck) {
@@ -594,6 +602,7 @@ public class ASkyBlock extends JavaPlugin {
         getWarpSignsListener().removeWarp(player);
         Island island = grid.getIsland(player);
         if (island != null) {
+            getServer().getPluginManager().callEvent(new IslandPreDeleteEvent(player, island));
             if (removeBlocks) {
                 grid.removePlayersFromIsland(island, player);
                 new DeleteIslandChunk(this, island);
@@ -937,7 +946,7 @@ public class ASkyBlock extends JavaPlugin {
     /**
      * @return the availableLocales
      */
-    public HashMap<String, ASLocale> getAvailableLocales() {
+    public Map<String, ASLocale> getAvailableLocales() {
         return availableLocales;
     }
 
@@ -961,37 +970,30 @@ public class ASkyBlock extends JavaPlugin {
     public PlayerEvents getPlayerEvents() {
         return playerEvents;
     }
-    
+
     /**
      * Registers the custom charts for Metrics
      */
     public void registerCustomCharts(){
-        metrics.addCustomChart(new Metrics.SimplePie("challenges_count", new Callable<String>() {
-            @Override
-            public String call() throws Exception {
-                
-                int count = challenges.getAllChallenges().size();
-                if(count <= 0) return "0";
-                else if(count >= 1 && count <= 10) return "1-10";
-                else if(count >= 11 && count <= 20) return "11-20";
-                else if(count >= 21 && count <= 30) return "21-30";
-                else if(count >= 31 && count <= 40) return "31-40";
-                else if(count >= 41 && count <= 50) return "41-50";
-                else if(count >= 51 && count <= 75) return "51-75";
-                else if(count >= 76 && count <= 100) return "76-100";
-                else if(count >= 101 && count <= 150) return "101-150";
-                else if(count >= 151 && count <= 200) return "151-200";
-                else if(count >= 201 && count <= 300) return "201-300";
-                else return "300+";
-            }
+        metrics.addCustomChart(new Metrics.SimplePie("challenges_count", () -> {
+
+            int count = challenges.getAllChallenges().size();
+            if(count <= 0) return "0";
+            else if(count <= 10) return "1-10";
+            else if(count <= 20) return "11-20";
+            else if(count <= 30) return "21-30";
+            else if(count <= 40) return "31-40";
+            else if(count <= 50) return "41-50";
+            else if(count <= 75) return "51-75";
+            else if(count <= 100) return "76-100";
+            else if(count <= 150) return "101-150";
+            else if(count <= 200) return "151-200";
+            else if(count <= 300) return "201-300";
+            else return "300+";
         }));
-        
-        metrics.addCustomChart(new Metrics.SingleLineChart("islands_count", new Callable<Integer>() {
-            @Override
-            public Integer call() throws Exception {
-                return getGrid().getIslandCount();
-            }
-        }));
+
+        metrics.addCustomChart(new Metrics.SingleLineChart("islands_count",
+            () -> getGrid().getIslandCount()));
     }
 
     /**
